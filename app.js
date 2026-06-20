@@ -626,6 +626,19 @@
     <p class="muted">Educational decision-support only — not medical advice. Individualise thresholds with your S&amp;C coach / physio.</p>`;
   }
 
+  // ---- Seed (first visit only) --------------------------------------------
+  // Pre-populate with the athlete's historical data the very first time this
+  // browser opens the app. Never re-seeds once the user has their own data or
+  // has explicitly cleared it (guarded by the alt_seeded_v1 flag).
+  (function seedIfFirstVisit() {
+    if (localStorage.getItem("alt_seeded_v1")) return;
+    localStorage.setItem("alt_seeded_v1", "1");
+    if (sessions.length === 0 && Array.isArray(window.SEED_SESSIONS) && window.SEED_SESSIONS.length) {
+      sessions = window.SEED_SESSIONS.map((s) => ({ id: uid(), updatedAt: nowISO(), ...s }));
+      persist();
+    }
+  })();
+
   // ---- Init ---------------------------------------------------------------
   $("#f_date").value = LM.dkey(new Date());
   refreshTypeList();
