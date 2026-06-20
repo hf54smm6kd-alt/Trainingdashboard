@@ -6,16 +6,25 @@
   "use strict";
   const LM = window.LM;
   const STORE = "alt_sessions_v1";
+  const TOMB = "alt_tombstones_v1";
+  const SYNCK = "alt_sync_v1";
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const nowISO = () => new Date().toISOString();
 
   // ---- State / persistence ------------------------------------------------
   let sessions = load();
+  let tombstones = loadTomb();
+  let syncCfg = loadSync();
   function load() {
     try { return JSON.parse(localStorage.getItem(STORE)) || []; }
     catch (e) { return []; }
   }
+  function loadTomb() { try { return JSON.parse(localStorage.getItem(TOMB)) || {}; } catch (e) { return {}; } }
+  function loadSync() { try { return JSON.parse(localStorage.getItem(SYNCK)) || {}; } catch (e) { return {}; } }
   function persist() { localStorage.setItem(STORE, JSON.stringify(sessions)); }
+  function persistTomb() { localStorage.setItem(TOMB, JSON.stringify(tombstones)); }
+  function persistSync() { localStorage.setItem(SYNCK, JSON.stringify(syncCfg)); }
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
   const FIELDS = ["date", "sessionType", "duration", "rpe", "totalDistance", "hsr",
@@ -48,10 +57,12 @@
     const rec = { id: $("#f_id").value || uid() };
     FIELDS.forEach((f) => { rec[f] = $("#f_" + f).value.trim(); });
     if (!rec.date) { msg("#formMsg", "Date is required", true); return; }
+    rec.updatedAt = nowISO();
     const idx = sessions.findIndex((s) => s.id === rec.id);
     if (idx >= 0) sessions[idx] = rec; else sessions.push(rec);
     persist();
     refreshTypeList();
+    autoSync();
     form.reset(); $("#f_id").value = ""; $("#logTitle").textContent = "Log a session";
     $("#f_date").value = LM.dkey(new Date());
     msg("#formMsg", idx >= 0 ? "Session updated ✓" : "Session saved ✓");
@@ -75,7 +86,9 @@
   function deleteSession(id) {
     if (!confirm("Delete this session?")) return;
     sessions = sessions.filter((s) => s.id !== id);
+    tombstones[id] = nowISO(); persistTomb();
     persist(); renderHistory(); msg("#historyCount", "");
+    autoSync();
   }
 
   // ---- History table ------------------------------------------------------
@@ -375,12 +388,12 @@
         rec[field] = val;
         if (val) hasData = true;
       });
-      if (rec.date && hasData) imported.push(rec);
+      if (rec.date && hasData) { rec.updatedAt = nowISO(); imported.push(rec); }
     }
     if (!imported.length) { msg("#importMsg", "No valid rows found (need a Date in each row)", true); return; }
     if ($("#importReplace").checked) sessions = imported;
     else sessions = sessions.concat(imported);
-    persist(); refreshTypeList();
+    persist(); refreshTypeList(); autoSync();
     msg("#importMsg", `Imported ${imported.length} sessions ✓`);
     $("#importBox").value = "";
   });
@@ -417,8 +430,8 @@
       try {
         const data = JSON.parse(reader.result);
         if (!Array.isArray(data)) throw new Error("not an array");
-        sessions = data.map((s) => ({ id: s.id || uid(), ...s }));
-        persist(); refreshTypeList(); alert("Restored " + sessions.length + " sessions.");
+        sessions = data.map((s) => ({ id: s.id || uid(), updatedAt: s.updatedAt || nowISO(), ...s }));
+        persist(); refreshTypeList(); autoSync(); alert("Restored " + sessions.length + " sessions.");
       } catch (err) { alert("Invalid backup file."); }
     };
     reader.readAsText(file);
@@ -436,6 +449,114 @@
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = name; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  // ---- Cross-device sync (GitHub Gist) ------------------------------------
+  const Sync = window.Sync;
+  let syncTimer = null, syncing = false;
+
+  function syncFields() { // hydrate inputs from stored config
+    $("#syncToken").value = syncCfg.token || "";
+    $("#syncGist").value = syncCfg.gistId || "";
+    $("#syncAuto").checked = !!syncCfg.auto;
+    updateSyncBadge();
+  }
+  function readSyncInputs() {
+    syncCfg.token = $("#syncToken").value.trim();
+    syncCfg.gistId = $("#syncGist").value.trim();
+    syncCfg.auto = $("#syncAuto").checked;
+    persistSync();
+  }
+  function updateSyncBadge() {
+    const badge = $("#syncBadge");
+    if (!badge) return;
+    if (syncCfg.token && syncCfg.gistId) {
+      badge.textContent = syncCfg.auto ? "auto" : "on";
+      badge.className = "pill green";
+    } else if (syncCfg.token) {
+      badge.textContent = "set up";
+      badge.className = "pill amber";
+    } else { badge.textContent = "off"; badge.className = "pill"; }
+  }
+  function syncMsg(text, isErr) {
+    const el = $("#syncStatus"); if (!el) return;
+    el.textContent = text;
+    el.style.color = isErr ? "var(--red)" : "var(--green)";
+  }
+
+  // Apply a merged envelope back into local state.
+  function applyEnvelope(env) {
+    sessions = (env.sessions || []).map((s) => (s.updatedAt ? s : { ...s, updatedAt: nowISO() }));
+    tombstones = env.tombstones || {};
+    persist(); persistTomb();
+    refreshTypeList(); renderDashboard();
+    if ($("#view-history").classList.contains("active")) renderHistory();
+    if ($("#view-weekly").classList.contains("active")) renderWeekly();
+  }
+
+  async function doSync({ create = false } = {}) {
+    if (syncing) return;
+    readSyncInputs();
+    if (!syncCfg.token) { syncMsg("Add a GitHub token first.", true); return; }
+    syncing = true; syncMsg("Syncing…");
+    try {
+      const localEnv = Sync.makeEnvelope(sessions, tombstones);
+      let remoteEnv = null;
+      if (syncCfg.gistId && !create) {
+        remoteEnv = await Sync.pullGist(syncCfg.token, syncCfg.gistId);
+      }
+      const merged = Sync.mergeEnvelopes(localEnv, remoteEnv);
+      applyEnvelope(merged);
+      const payload = Sync.makeEnvelope(sessions, tombstones);
+      if (!syncCfg.gistId || create) {
+        syncCfg.gistId = await Sync.createGist(syncCfg.token, payload);
+        $("#syncGist").value = syncCfg.gistId;
+      } else {
+        await Sync.updateGist(syncCfg.token, syncCfg.gistId, payload);
+      }
+      syncCfg.lastSync = nowISO(); persistSync();
+      updateSyncBadge();
+      syncMsg(`Synced ✓ ${sessions.length} sessions · ${new Date().toLocaleTimeString()}`);
+    } catch (err) {
+      syncMsg(err.message || "Sync failed.", true);
+    } finally { syncing = false; }
+  }
+
+  function autoSync() {
+    if (!syncCfg.auto || !syncCfg.token || !syncCfg.gistId) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => doSync(), 1500); // debounce rapid edits
+  }
+
+  function bindSync() {
+    if (!$("#syncNow")) return;
+    syncFields();
+    $("#syncNow").onclick = () => doSync();
+    $("#syncCreate").onclick = () => doSync({ create: true });
+    $("#syncPull").onclick = async () => {
+      readSyncInputs();
+      if (!syncCfg.token || !syncCfg.gistId) { syncMsg("Need token + Gist ID to pull.", true); return; }
+      syncMsg("Pulling…");
+      try {
+        const remoteEnv = await Sync.pullGist(syncCfg.token, syncCfg.gistId);
+        const merged = Sync.mergeEnvelopes(Sync.makeEnvelope(sessions, tombstones), remoteEnv);
+        applyEnvelope(merged);
+        syncMsg(`Pulled & merged ✓ ${sessions.length} sessions.`);
+      } catch (err) { syncMsg(err.message, true); }
+    };
+    $("#syncVerify").onclick = async () => {
+      readSyncInputs();
+      if (!syncCfg.token) { syncMsg("Enter a token first.", true); return; }
+      syncMsg("Checking…");
+      try { const login = await Sync.whoami(syncCfg.token); syncMsg(`Token OK — signed in as ${login}.`); }
+      catch (err) { syncMsg(err.message, true); }
+    };
+    $("#syncForget").onclick = () => {
+      if (!confirm("Remove the saved token & Gist ID from this browser? Your local data stays.")) return;
+      syncCfg = {}; persistSync(); syncFields(); syncMsg("Token forgotten.");
+    };
+    ["syncToken", "syncGist"].forEach((id) => $("#" + id).addEventListener("change", readSyncInputs));
+    $("#syncAuto").addEventListener("change", () => { readSyncInputs(); updateSyncBadge(); });
   }
 
   // ---- Misc helpers -------------------------------------------------------
@@ -509,4 +630,9 @@
   $("#f_date").value = LM.dkey(new Date());
   refreshTypeList();
   renderDashboard();
+  bindSync();
+  // Auto-pull on startup so a device opens to the latest synced data.
+  if (syncCfg.auto && syncCfg.token && syncCfg.gistId) {
+    setTimeout(() => doSync(), 300);
+  }
 })();

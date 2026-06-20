@@ -172,7 +172,36 @@
 
   <!-- DATA -->
   <section id="view-data" class="view">
-    <div class="view-head"><h2>Import / Export</h2></div>
+    <div class="view-head"><h2>Import / Export &amp; Sync</h2></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Cross-device sync <span id="syncBadge" class="pill">off</span></h3>
+        <span class="muted">Your data lives in a private GitHub Gist. Add a token on each device to sync.</span>
+      </div>
+      <details id="syncHelp">
+        <summary class="muted" style="cursor:pointer">How to get a token (one-time)</summary>
+        <ol class="muted" style="font-size:13px">
+          <li>GitHub → <b>Settings → Developer settings → Personal access tokens</b>.</li>
+          <li><b>Fine-grained token</b>: give it <b>Gists: Read and write</b> (Account permissions). Or a <b>classic</b> token with the <code>gist</code> scope.</li>
+          <li>Copy it and paste below. It is stored only in this browser. Leave the Gist ID blank the first time — “Create &amp; push” will make a new private gist and fill it in. On your other devices, paste the same token <em>and</em> the Gist ID, then “Pull”.</li>
+        </ol>
+        <p class="muted" style="font-size:13px">Note: sync calls the GitHub API, which needs the app served over http(s) — works on GitHub Pages or <code>localhost</code>, not from a <code>file://</code> page.</p>
+      </details>
+      <div class="grid" style="margin-top:10px">
+        <label>GitHub token<input type="password" id="syncToken" placeholder="github_pat_… / ghp_…" autocomplete="off" /></label>
+        <label>Gist ID <span class="muted">(auto-filled)</span><input type="text" id="syncGist" placeholder="created on first push" /></label>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" id="syncNow">Sync now</button>
+        <button class="btn" id="syncCreate">Create &amp; push</button>
+        <button class="btn" id="syncPull">Pull &amp; merge</button>
+        <button class="btn" id="syncVerify">Verify token</button>
+        <label class="inline-check"><input type="checkbox" id="syncAuto" /> Auto-sync on save</label>
+        <button class="btn danger btn-sm" id="syncForget">Forget token</button>
+      </div>
+      <div id="syncStatus" class="form-msg" style="min-height:18px"></div>
+    </div>
 
     <div class="panel">
       <h3>Paste from your spreadsheet</h3>
@@ -210,6 +239,7 @@
 </footer>
 
 <script src="flags.js"></script>
+<script src="sync.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

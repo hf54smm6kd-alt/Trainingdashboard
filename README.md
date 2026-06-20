@@ -24,8 +24,10 @@ fields, and get an automatic weekly summary with a risk band per week.
   and source.
 - **Import** — paste rows straight from your spreadsheet (tab-separated); columns
   are matched by name. **Export** to CSV and JSON backup; restore from JSON.
+- **Cross-device sync** — optional, via a private GitHub Gist (no backend). Your
+  data follows you across phone/laptop with a smart id-based merge.
 - **No dependencies, no server, no tracking.** Pure HTML/CSS/JS. Data lives in
-  your browser's `localStorage`.
+  your browser's `localStorage` (and your private gist if sync is on).
 
 ## Run it
 
@@ -42,6 +44,31 @@ re-import when switching device.
 2. In your spreadsheet, copy the header row + the daily-log rows.
 3. Paste into the box and click **Import pasted rows** (tick *Replace all* for a
    clean load). Dates in `dd/mm/yyyy` or `yyyy-mm-dd` are both understood.
+
+## Cross-device sync
+
+The app stays serverless — sync uses a **private GitHub Gist** as the store, so
+your data follows you without anything to host or maintain.
+
+**One-time setup**
+
+1. GitHub → *Settings → Developer settings → Personal access tokens*. Create a
+   **fine-grained token** with **Gists: Read and write**, or a **classic** token
+   with the `gist` scope.
+2. Open **Import / Export & Sync**, paste the token, leave *Gist ID* blank, and
+   click **Create & push** — this makes a new private gist and fills in the ID.
+3. On your other devices, paste the **same token and Gist ID**, then **Pull &
+   merge**. Tick **Auto-sync on save** to sync automatically (it also pulls on
+   startup).
+
+**How merging works** — each session has an `id` and an `updatedAt` stamp. On
+sync the app pulls the gist, merges by id (newest edit wins), propagates deletes
+via tombstones, then pushes the result. Editing on two devices is safe; only an
+edit to the *same* session on both before syncing resolves to the most recent.
+
+> Sync calls the GitHub API, which requires the app be served over **http(s)**
+> (GitHub Pages or `localhost`) — not a `file://` page. The token is stored only
+> in that browser's `localStorage`; use **Forget token** to remove it.
 
 ## The metrics
 
@@ -101,7 +128,8 @@ precedes breakdown — that is when the dashboard turns red.
 | `index.html` | App shell & views |
 | `styles.css` | Styling |
 | `flags.js` | Pure metric & flag engine (`window.LM`) — no DOM, unit-testable |
-| `app.js` | UI, persistence, charts, import/export |
+| `sync.js` | GitHub Gist sync + pure `mergeEnvelopes()` (`window.Sync`) |
+| `app.js` | UI, persistence, charts, import/export, sync wiring |
 
 ## Disclaimer
 
