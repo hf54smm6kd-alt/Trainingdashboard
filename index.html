@@ -14,19 +14,57 @@
     <h1>Athletic Load Tracker</h1>
   </div>
   <nav class="tabs" id="tabs">
-    <button class="tab active" data-view="dashboard">Dashboard</button>
+    <button class="tab active" data-view="today">Today</button>
+    <button class="tab" data-view="plan">Plan</button>
     <button class="tab" data-view="log">Log Session</button>
+    <button class="tab" data-view="dashboard">Load / ACWR</button>
+    <button class="tab" data-view="intensity">Intensity</button>
+    <button class="tab" data-view="speed">Speed &amp; Strength</button>
+    <button class="tab" data-view="tests">Tests &amp; Goals</button>
     <button class="tab" data-view="history">History</button>
     <button class="tab" data-view="weekly">Weekly</button>
     <button class="tab" data-view="data">Import / Export</button>
+    <button class="tab" data-view="settings">Settings</button>
     <button class="tab" data-view="science">Flag Guide</button>
   </nav>
 </header>
 
 <main id="app">
 
+  <!-- TODAY -->
+  <section id="view-today" class="view active">
+    <div class="view-head">
+      <h2>Today</h2>
+      <div class="as-of" id="todayDate"></div>
+    </div>
+    <div id="todayPhaseBanner" class="flag-banner"></div>
+    <div class="panel">
+      <div class="panel-head"><h3>Readiness</h3><span class="muted">Enter today's Whoop recovery % (or HRV-based readiness) to get a session modifier</span></div>
+      <div class="grid">
+        <label>Recovery %<input type="number" id="readinessInput" min="0" max="100" step="1" /></label>
+        <label class="readonly">Light<input type="text" id="readinessLight" readonly /></label>
+      </div>
+      <div id="readinessAction" class="form-msg" style="min-height:18px"></div>
+    </div>
+    <div id="todaySessions" class="cards"></div>
+  </section>
+
+  <!-- PLAN / CALENDAR -->
+  <section id="view-plan" class="view">
+    <div class="view-head">
+      <h2>Plan / Calendar</h2>
+      <div class="row-tools">
+        <button class="btn btn-sm" id="planPrevWeek">‹ Prev week</button>
+        <button class="btn btn-sm" id="planThisWeek">This week</button>
+        <button class="btn btn-sm" id="planNextWeek">Next week ›</button>
+      </div>
+    </div>
+    <div id="planSummary" class="cards"></div>
+    <div id="planWeek" class="plan-week"></div>
+  </section>
+
   <!-- DASHBOARD -->
-  <section id="view-dashboard" class="view active">
+  <section id="view-dashboard" class="view">
     <div class="view-head">
       <h2>Dashboard</h2>
       <div class="as-of" id="asOf"></div>
@@ -81,6 +119,36 @@
           <label>Duration (min)<input type="number" id="f_duration" min="0" step="1" /></label>
           <label>RPE (1–10)<input type="number" id="f_rpe" min="0" max="10" step="0.5" /></label>
           <label class="readonly">Load (RPE × Duration)<input type="text" id="f_load" readonly /></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Plan classification <span class="muted">(for the rules engine — Today/Plan/Intensity/Speed views)</span></legend>
+        <div class="grid">
+          <label>Kind<select id="f_kind">
+            <option value="">—</option>
+            <option value="run">Run</option>
+            <option value="sprint">Sprint / Max-V</option>
+            <option value="strength">Strength</option>
+            <option value="plyo">Plyo</option>
+            <option value="match">Match / GAA</option>
+            <option value="rest">Rest</option>
+          </select></label>
+          <label>Run type<select id="f_runType">
+            <option value="">—</option>
+            <option value="recovery">Recovery</option>
+            <option value="easy">Easy (Z2)</option>
+            <option value="long">Long run</option>
+            <option value="steady">Steady</option>
+            <option value="threshold">Threshold / tempo</option>
+            <option value="cruise">Cruise intervals</option>
+            <option value="vo2max">VO2max</option>
+            <option value="race_pace">Race pace</option>
+          </select></label>
+          <label>Max-V efforts (&gt;90% speed)<input type="number" id="f_maxVEfforts" min="0" step="1" /></label>
+          <label>Plyo tier<select id="f_plyoTier"><option value="">—</option><option value="1">1 — pogos/ankle hops</option><option value="2">2 — CMJ/box jumps</option><option value="3">3 — bounds/depth jumps</option></select></label>
+          <label>Plyo contacts<input type="number" id="f_plyoContacts" min="0" step="1" /></label>
+          <label class="full">Lifts<input type="text" id="f_lifts" placeholder="e.g. Squat 4x5x100kg; RDL 3x8x60kg" /></label>
         </div>
       </fieldset>
 
@@ -170,6 +238,80 @@
     </div>
   </section>
 
+  <!-- INTENSITY (80/20) -->
+  <section id="view-intensity" class="view">
+    <div class="view-head">
+      <h2>Intensity — 80/20 check</h2>
+      <span class="muted">Sessions classified easy vs moderate/hard by run type (or RPE fallback). Nudges if hard exceeds ~25–30% of runs.</span>
+    </div>
+    <div class="cards" id="intensityCards"></div>
+    <div class="chart-grid">
+      <div class="panel"><h3>Easy km per week <span class="muted">(the primary, historically-untracked lever)</span></h3><canvas id="chartEasyKm" height="220"></canvas></div>
+      <div class="panel"><h3>Hard-session % of runs (rolling)</h3><canvas id="chartHardPct" height="220"></canvas></div>
+    </div>
+  </section>
+
+  <!-- SPEED & STRENGTH -->
+  <section id="view-speed" class="view">
+    <div class="view-head">
+      <h2>Speed &amp; Strength</h2>
+      <span class="muted">Max-velocity exposure with hamstring guardrail bands, sprint distance, and strength log.</span>
+    </div>
+    <div id="sprintWarnings" class="flag-list"></div>
+    <div class="chart-grid">
+      <div class="panel"><h3>Weekly &gt;90% max-V efforts <span class="muted">(moderate band ≈4–12/wk)</span></h3><canvas id="chartMaxV" height="220"></canvas></div>
+      <div class="panel"><h3>Weekly sprint distance (m)</h3><canvas id="chartSprintDist" height="220"></canvas></div>
+    </div>
+    <div class="panel">
+      <h3>Strength log</h3>
+      <div class="table-wrap">
+        <table id="strengthTable" class="data-table">
+          <thead><tr><th>Date</th><th>Type</th><th>RPE</th><th>Lifts</th></tr></thead>
+          <tbody id="strengthBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TESTS & GOALS -->
+  <section id="view-tests" class="view">
+    <div class="view-head"><h2>Tests &amp; Goals</h2></div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>Log a test</h3><span class="muted">5k / 10k / parkrun — paces &amp; goals recompute automatically</span></div>
+      <form id="testForm" class="form">
+        <div class="grid">
+          <label>Date<input type="date" id="t_date" required /></label>
+          <label>Type<select id="t_type"><option value="10k">10k</option><option value="5k">5k</option><option value="parkrun">Parkrun (5k)</option></select></label>
+          <label>Result (mm:ss)<input type="text" id="t_result" placeholder="39:30" required /></label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn primary">Save test</button>
+          <span id="testMsg" class="form-msg"></span>
+        </div>
+      </form>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>Decision gate</h3><span class="muted">Week-10 10k is the gate: ~37:00 → A · ~38:00 → B · slower → C</span></div>
+      <div id="goalGate" class="cards"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Current pace zones <span class="muted">(recomputed from latest test via Riegel)</span></h3>
+      <div class="table-wrap">
+        <table class="data-table"><thead><tr><th>Zone</th><th>Pace /km</th></tr></thead><tbody id="zoneBody"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Test history</h3>
+      <div class="table-wrap">
+        <table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Result</th><th>Predicted HM</th><th></th></tr></thead><tbody id="testBody"></tbody></table>
+      </div>
+    </div>
+  </section>
+
   <!-- DATA -->
   <section id="view-data" class="view">
     <div class="view-head"><h2>Import / Export &amp; Sync</h2></div>
@@ -226,6 +368,24 @@
     </div>
   </section>
 
+  <!-- SETTINGS -->
+  <section id="view-settings" class="view">
+    <div class="view-head"><h2>Settings</h2></div>
+    <div class="panel">
+      <div class="grid">
+        <label>Race date<input type="date" id="s_raceDate" /></label>
+        <label>Season-end date<input type="date" id="s_seasonEndDate" /></label>
+        <label>Max velocity (m/s)<input type="number" id="s_maxVelocityMs" min="0" step="0.01" /></label>
+        <label class="inline-check" style="align-self:end"><input type="checkbox" id="s_ewmaMode" /> Use EWMA for ACWR (more sensitive to recent load)</label>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" id="settingsSave">Save settings</button>
+        <span id="settingsMsg" class="form-msg"></span>
+      </div>
+      <p class="muted">Phases, weekly templates and pace zones are generated from these dates and your latest test — change them any time and the whole plan recalculates. Note: Whoop's Zone-2/70%HR boundary may sit below true LT1; prefer a chest-strap HR for zone work if you add one.</p>
+    </div>
+  </section>
+
   <!-- SCIENCE -->
   <section id="view-science" class="view">
     <div class="view-head"><h2>Flag guide &amp; literature</h2></div>
@@ -239,6 +399,7 @@
 </footer>
 
 <script src="flags.js"></script>
+<script src="plan.js"></script>
 <script src="sync.js"></script>
 <script src="seed-data.js"></script>
 <script src="app.js"></script>
