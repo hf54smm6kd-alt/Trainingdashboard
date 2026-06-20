@@ -5,6 +5,7 @@
 (function () {
   "use strict";
   const LM = window.LM;
+  const PLAN = window.PLAN;
   const STORE = "alt_sessions_v1";
   const TOMB = "alt_tombstones_v1";
   const SYNCK = "alt_sync_v1";
@@ -29,7 +30,8 @@
 
   const FIELDS = ["date", "sessionType", "duration", "rpe", "totalDistance", "hsr",
     "sprintDistance", "maxSpeed", "accelerations", "avgHR", "maxHR", "whoopStrain",
-    "hrv", "restingHR", "sleep", "restorativeSleep", "recoveryPct", "energy", "soreness", "notes"];
+    "hrv", "restingHR", "sleep", "restorativeSleep", "recoveryPct", "energy", "soreness", "notes",
+    "kind", "runType", "maxVEfforts", "plyoTier", "plyoContacts", "lifts"];
 
   // ---- Tab navigation -----------------------------------------------------
   $$("#tabs .tab").forEach((t) =>
@@ -41,6 +43,12 @@
     if (name === "dashboard") renderDashboard();
     if (name === "history") renderHistory();
     if (name === "weekly") renderWeekly();
+    if (name === "today") renderToday();
+    if (name === "plan") renderPlan();
+    if (name === "intensity") renderIntensity();
+    if (name === "speed") renderSpeed();
+    if (name === "tests") renderTests();
+    if (name === "settings") renderSettings();
   }
 
   // ---- Form ---------------------------------------------------------------
@@ -341,7 +349,10 @@
     [/acceler/, "accelerations"], [/avg\s*hr|average\s*hr/, "avgHR"], [/max\s*hr/, "maxHR"],
     [/whoop|strain/, "whoopStrain"], [/^hrv/, "hrv"], [/resting\s*hr/, "restingHR"],
     [/restorative/, "restorativeSleep"], [/^sleep/, "sleep"], [/recovery/, "recoveryPct"],
-    [/^energy/, "energy"], [/soreness/, "soreness"], [/notes/, "notes"],
+    [/^energy/, "energy"], [/soreness/, "soreness"],
+    [/^kind/, "kind"], [/run\s*type/, "runType"], [/max-?v\s*efforts/, "maxVEfforts"],
+    [/plyo\s*tier/, "plyoTier"], [/plyo\s*contacts/, "plyoContacts"], [/^lifts/, "lifts"],
+    [/notes/, "notes"],
   ];
   function mapHeader(h) {
     const k = h.toLowerCase().trim();
@@ -412,8 +423,9 @@
   $("#exportCsv").addEventListener("click", () => {
     const cols = ["date", "sessionType", "duration", "rpe", "load", "totalDistance", "hsr",
       "sprintDistance", "maxSpeed", "accelerations", "avgHR", "maxHR", "whoopStrain",
-      "hrv", "restingHR", "sleep", "restorativeSleep", "recoveryPct", "energy", "soreness", "notes"];
-    const head = "Date,Session Type,Duration,RPE,Load,Total Distance,HSR,Sprint Distance,Max Speed,Accelerations,Avg HR,Max HR,Whoop Strain,HRV,Resting HR,Sleep,Restorative Sleep,Recovery %,Energy,Soreness,Notes";
+      "hrv", "restingHR", "sleep", "restorativeSleep", "recoveryPct", "energy", "soreness",
+      "kind", "runType", "maxVEfforts", "plyoTier", "plyoContacts", "lifts", "notes"];
+    const head = "Date,Session Type,Duration,RPE,Load,Total Distance,HSR,Sprint Distance,Max Speed,Accelerations,Avg HR,Max HR,Whoop Strain,HRV,Resting HR,Sleep,Restorative Sleep,Recovery %,Energy,Soreness,Kind,Run Type,Max-V Efforts,Plyo Tier,Plyo Contacts,Lifts,Notes";
     const rows = [...sessions].sort((a, b) => (a.date < b.date ? -1 : 1)).map((s) =>
       cols.map((c) => c === "load" ? LM.sessionLoad(s) : csvCell(s[c])).join(","));
     download("training-load-export.csv", [head, ...rows].join("\n"), "text/csv");
@@ -559,6 +571,237 @@
     $("#syncAuto").addEventListener("change", () => { readSyncInputs(); updateSyncBadge(); });
   }
 
+  // ---- Today ---------------------------------------------------------------
+  const READINESS_KEY = "alt_readiness_v1";
+  function loadReadiness() { try { return JSON.parse(localStorage.getItem(READINESS_KEY)) || {}; } catch (e) { return {}; } }
+  function saveReadiness(r) { localStorage.setItem(READINESS_KEY, JSON.stringify(r)); }
+
+  function currentZones() {
+    const t = PLAN.latestTest(PLAN.loadTests());
+    if (!t) return null;
+    return PLAN.computeZones(t.valueSec, PLAN.TEST_DIST_KM[t.type] || 10);
+  }
+  function zonePaceLabel(zoneKey) {
+    const z = currentZones();
+    if (!z || !z[zoneKey]) return "";
+    const [lo, hi] = z[zoneKey];
+    return `${PLAN.fmtPace(Math.min(lo, hi))}–${PLAN.fmtPace(Math.max(lo, hi))} /km`;
+  }
+
+  function renderToday() {
+    const settings = PLAN.loadSettings();
+    const today = LM.dkey(new Date());
+    const day = PLAN.generateDay(today, settings);
+    $("#todayDate").textContent = fmtDate(today);
+    const meta = PLAN.PHASE_META[day.phase] || {};
+    $("#todayPhaseBanner").innerHTML = `<div class="big">📅 <span><b>${esc(meta.label || day.phase)}</b> — ${day.weeksToRace} weeks to race · weekly target ${meta.weeklyKm ? meta.weeklyKm.join("–") + " km" : "—"}, long run ${meta.longRun || "—"} km</span></div>`;
+
+    const readiness = loadReadiness();
+    const input = $("#readinessInput");
+    input.value = readiness[today] != null ? readiness[today] : "";
+    renderReadinessOutput(readiness[today]);
+    input.oninput = () => {
+      const v = input.value === "" ? null : +input.value;
+      readiness[today] = v; saveReadiness(readiness);
+      renderReadinessOutput(v);
+    };
+
+    const cards = $("#todaySessions");
+    if (!day.sessions.length) {
+      cards.innerHTML = `<div class="card"><div class="label">Rest</div><div class="sub">No prescribed session today.</div></div>`;
+      return;
+    }
+    cards.innerHTML = day.sessions.map((s) => {
+      const pace = s.zone ? zonePaceLabel(s.zone) : "";
+      const sprint = s.sprintEfforts ? `${s.sprintEfforts} efforts · ~${s.sprintFlyM} m fly zone` : "";
+      const plyo = s.plyoContacts ? `${s.plyoContacts} contacts` : "";
+      const sub = [s.details, pace, sprint, plyo].filter(Boolean).join(" · ");
+      return `<div class="card"><div class="label">${esc(s.kind)} · ${esc(s.intensity)}</div><div class="value" style="font-size:18px">${esc(s.title)}</div><div class="sub">${esc(sub)}</div></div>`;
+    }).join("");
+  }
+  function renderReadinessOutput(v) {
+    const light = PLAN.readinessLight(v);
+    $("#readinessLight").value = light ? light.toUpperCase() : "";
+    $("#readinessAction").textContent = light ? PLAN.READINESS_ACTION[light] : "Enter today's recovery % for a session recommendation.";
+    $("#readinessAction").style.color = light === "red" ? "var(--red)" : light === "yellow" ? "var(--amber)" : "var(--green)";
+  }
+
+  // ---- Plan / Calendar ------------------------------------------------------
+  let planWeekOffset = 0;
+  $("#planPrevWeek") && ($("#planPrevWeek").onclick = () => { planWeekOffset--; renderPlan(); });
+  $("#planNextWeek") && ($("#planNextWeek").onclick = () => { planWeekOffset++; renderPlan(); });
+  $("#planThisWeek") && ($("#planThisWeek").onclick = () => { planWeekOffset = 0; renderPlan(); });
+  function renderPlan() {
+    const settings = PLAN.loadSettings();
+    const today = LM.dkey(new Date());
+    const baseWeekStart = LM.weekStart(today);
+    const weekStartISO = LM.addDays(baseWeekStart, planWeekOffset * 7);
+    const week = PLAN.generateWeek(weekStartISO, settings);
+    const meta = PLAN.PHASE_META[week[0].phase] || {};
+    $("#planSummary").innerHTML = [
+      kpi("Phase", meta.label || week[0].phase, "", ""),
+      kpi("Weeks to race", week[0].weeksToRace, "", ""),
+      kpi("Weekly km target", meta.weeklyKm ? meta.weeklyKm.join("–") : "—", "", ""),
+      kpi("Long run target", (meta.longRun || "—") + " km", "", ""),
+      kpi("Max-V sessions/wk", meta.maxV ?? "—", "", ""),
+      kpi("Strength sessions/wk", meta.strength ?? "—", "", ""),
+    ].join("");
+    $("#planWeek").innerHTML = week.map((d) => {
+      const rows = d.sessions.length
+        ? d.sessions.map((s) => `<div class="plan-session ${esc(s.intensity)}"><b>${esc(s.title)}</b><br><span class="muted">${esc(s.details || "")}</span></div>`).join("")
+        : `<div class="muted">Rest</div>`;
+      const isToday = d.date === today;
+      return `<div class="plan-day ${isToday ? "is-today" : ""}"><div class="plan-day-head">${fmtDate(d.date)}</div>${rows}</div>`;
+    }).join("");
+  }
+
+  // ---- Intensity (80/20) -----------------------------------------------------
+  function renderIntensity() {
+    const byWeek = new Map();
+    sessions.forEach((s) => {
+      if (!s.date) return;
+      const ws = LM.weekStart(s.date);
+      if (!byWeek.has(ws)) byWeek.set(ws, []);
+      byWeek.get(ws).push(s);
+    });
+    const weekKeys = [...byWeek.keys()].sort();
+    const weeks = weekKeys.map((ws) => {
+      const split = PLAN.intensitySplit(byWeek.get(ws));
+      return Object.assign({ weekStart: ws }, split);
+    });
+    const last = weeks[weeks.length - 1];
+    const trailing28 = weeks.slice(-4);
+    const hardTotal = trailing28.reduce((s, w) => s + w.hardCount, 0);
+    const easyTotal = trailing28.reduce((s, w) => s + w.easyCount, 0);
+    const rollingHardPct = (hardTotal + easyTotal) ? hardTotal / (hardTotal + easyTotal) : null;
+    $("#intensityCards").innerHTML = [
+      kpi("This week — easy km", last ? Math.round(last.easyKm) : "—", "", ""),
+      kpi("This week — hard %", last && last.hardPct !== null ? Math.round(last.hardPct * 100) + "%" : "—", "target ≤25–30%", last && last.hardPct > 0.3 ? "amber" : ""),
+      kpi("28-day hard %", rollingHardPct !== null ? Math.round(rollingHardPct * 100) + "%" : "—", "rolling 4 weeks", rollingHardPct !== null && rollingHardPct > 0.3 ? "amber" : "green"),
+    ].join("");
+    const labels = weeks.map((w) => w.weekStart);
+    lineChart("chartEasyKm", labels, [{ data: weeks.map((w) => w.easyKm), color: "#2fbf71", fill: true, name: "Easy km" }]);
+    lineChart("chartHardPct", labels, [{ data: weeks.map((w) => w.hardPct === null ? null : w.hardPct * 100), color: "#ef4d5a", name: "Hard % of runs" }]);
+  }
+
+  // ---- Speed & Strength -------------------------------------------------------
+  function renderSpeed() {
+    const days = LM.dailyFromSessions(sessions);
+    const weeks = LM.weeklySummaries(days);
+    const maxVByWeek = new Map();
+    sessions.forEach((s) => {
+      if (!s.date || !s.maxVEfforts) return;
+      const ws = LM.weekStart(s.date);
+      maxVByWeek.set(ws, (maxVByWeek.get(ws) || 0) + (LM.num(s.maxVEfforts) || 0));
+    });
+    weeks.forEach((w) => { w.maxVEfforts = maxVByWeek.get(w.weekStart) || 0; });
+    const warnings = PLAN.sprintGuardrails(weeks);
+    $("#sprintWarnings").innerHTML = warnings.length
+      ? warnings.map((w) => `<div class="flag-item"><span class="dot ${w.level}"></span><div><div class="ft">${fmtDate(w.weekStart)}</div><div class="fd">${esc(w.text)}</div></div></div>`).join("")
+      : `<div class="muted">No sprint-dose warnings.</div>`;
+    const labels = weeks.map((w) => w.weekStart);
+    barBandChart("chartMaxV", labels, weeks.map((w) => w.maxVEfforts), 4, 12);
+    lineChart("chartSprintDist", labels, [{ data: weeks.map((w) => w.sprint), color: "#f5a623", fill: true, name: "Sprint distance (m)" }]);
+
+    const strengthRows = [...sessions].filter((s) => s.kind === "strength" || /upper|lower/i.test(s.sessionType || ""))
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
+    $("#strengthBody").innerHTML = strengthRows.map((s) => `<tr><td>${fmtDate(s.date)}</td><td>${esc(s.sessionType || s.kind)}</td><td>${esc(s.rpe ?? "")}</td><td>${esc(s.lifts || "")}</td></tr>`).join("");
+  }
+  function barBandChart(id, labels, data, bandLo, bandHi) {
+    const s = setupCanvas(id); if (!s) return;
+    const { ctx, w, h } = s;
+    const padL = 30, padR = 14, padT = 12, padB = 22;
+    const plotW = w - padL - padR, plotH = h - padT - padB;
+    const max = Math.max(bandHi + 4, ...data.filter((v) => v != null), 1);
+    const n = labels.length;
+    const x = (i) => padL + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+    const y = (v) => padT + plotH - (v / max) * plotH;
+    ctx.fillStyle = "rgba(47,191,113,.13)";
+    ctx.fillRect(padL, y(bandHi), plotW, y(bandLo) - y(bandHi));
+    const bw = Math.max(2, plotW / Math.max(n, 1) * 0.6);
+    ctx.fillStyle = "#4ea1ff";
+    data.forEach((v, i) => { if (v == null) return; ctx.fillRect(x(i) - bw / 2, y(v), bw, plotH - (y(v) - padT)); });
+    ctx.fillStyle = "#7d93a8"; ctx.font = "10px sans-serif";
+    [0, Math.floor(n / 2), n - 1].forEach((i) => { if (i >= 0 && i < n) ctx.fillText((labels[i] || "").slice(5), x(i) - 12, h - 6); });
+  }
+
+  // ---- Tests & Goals -----------------------------------------------------
+  const testForm = $("#testForm");
+  if (testForm) {
+    $("#t_date").value = LM.dkey(new Date());
+    testForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const date = $("#t_date").value, type = $("#t_type").value, result = $("#t_result").value.trim();
+      const valueSec = PLAN.parseTime(result);
+      if (!date || !valueSec) { msg("#testMsg", "Need a date and a valid mm:ss result", true); return; }
+      const tests = PLAN.loadTests();
+      tests.push({ id: uid(), date, type, result, valueSec });
+      PLAN.saveTests(tests);
+      testForm.reset(); $("#t_date").value = LM.dkey(new Date());
+      msg("#testMsg", "Test saved — paces recomputed ✓");
+      renderTests();
+    });
+  }
+  function renderTests() {
+    const tests = PLAN.loadTests();
+    const latest = PLAN.latestTest(tests);
+    const zoneNames = { recovery: "Recovery", easy: "Easy (Z2)", long: "Long-run", steady: "Steady / marathon",
+      threshold: "Threshold / tempo (LT2)", cruise: "Cruise intervals", vo2max: "VO2max (3–5k effort)" };
+    if (!latest) {
+      $("#zoneBody").innerHTML = `<tr><td colspan="2" class="muted">Log a test to compute pace zones.</td></tr>`;
+      $("#goalGate").innerHTML = "";
+      $("#testBody").innerHTML = "";
+      return;
+    }
+    const distKm = PLAN.TEST_DIST_KM[latest.type] || 10;
+    const zones = PLAN.computeZones(latest.valueSec, distKm);
+    const rows = Object.keys(zoneNames).map((k) => {
+      const [lo, hi] = zones[k];
+      return `<tr><td>${zoneNames[k]}</td><td>${PLAN.fmtPace(Math.min(lo, hi))}–${PLAN.fmtPace(Math.max(lo, hi))}</td></tr>`;
+    });
+    rows.push(`<tr><td><b>HM goal A (stretch)</b></td><td><b>${PLAN.fmtPace(zones.goalA)}</b></td></tr>`);
+    rows.push(`<tr><td><b>HM goal B (target)</b></td><td><b>${PLAN.fmtPace(zones.goalB)}</b></td></tr>`);
+    rows.push(`<tr><td><b>HM goal C (floor)</b></td><td><b>${PLAN.fmtPace(zones.goalC)}</b></td></tr>`);
+    $("#zoneBody").innerHTML = rows.join("");
+
+    const gate = PLAN.decisionGate(latest.valueSec, distKm);
+    $("#goalGate").innerHTML = [
+      kpi("Latest test", `${latest.type} — ${latest.result}`, fmtDate(latest.date), ""),
+      kpi("Predicted half (Riegel)", PLAN.fmtTime(zones.predictedHmSec), PLAN.fmtPace(zones.predictedHmPace) + " /km", ""),
+      kpi("Decision gate", "Goal " + gate.goal, gate.label, gate.goal === "A" ? "green" : gate.goal === "B" ? "" : "amber"),
+    ].join("");
+
+    $("#testBody").innerHTML = [...tests].sort((a, b) => (a.date < b.date ? 1 : -1)).map((t) => {
+      const d = PLAN.TEST_DIST_KM[t.type] || 10;
+      const hm = PLAN.fmtTime(PLAN.riegelTime(t.valueSec, d, 21.0975));
+      return `<tr><td>${fmtDate(t.date)}</td><td>${esc(t.type)}</td><td>${esc(t.result)}</td><td>${hm}</td>
+        <td><button class="btn btn-sm danger" data-deltest="${t.id}">✕</button></td></tr>`;
+    }).join("");
+    $$("#testBody [data-deltest]").forEach((b) => b.onclick = () => {
+      const remaining = PLAN.loadTests().filter((t) => t.id !== b.dataset.deltest);
+      PLAN.saveTests(remaining); renderTests();
+    });
+  }
+
+  // ---- Settings --------------------------------------------------------------
+  function renderSettings() {
+    const s = PLAN.loadSettings();
+    $("#s_raceDate").value = s.raceDate;
+    $("#s_seasonEndDate").value = s.seasonEndDate;
+    $("#s_maxVelocityMs").value = s.maxVelocityMs;
+    $("#s_ewmaMode").checked = !!s.ewmaMode;
+  }
+  $("#settingsSave") && ($("#settingsSave").onclick = () => {
+    const s = {
+      raceDate: $("#s_raceDate").value || PLAN.loadSettings().raceDate,
+      seasonEndDate: $("#s_seasonEndDate").value || PLAN.loadSettings().seasonEndDate,
+      maxVelocityMs: +$("#s_maxVelocityMs").value || 9.5,
+      ewmaMode: $("#s_ewmaMode").checked,
+    };
+    PLAN.saveSettings(s);
+    msg("#settingsMsg", "Settings saved ✓");
+  });
+
   // ---- Misc helpers -------------------------------------------------------
   function refreshTypeList() {
     const types = [...new Set(sessions.map((s) => s.sessionType).filter(Boolean))].sort();
@@ -637,12 +880,13 @@
       sessions = window.SEED_SESSIONS.map((s) => ({ id: uid(), updatedAt: nowISO(), ...s }));
       persist();
     }
+    if (PLAN.loadTests().length === 0) PLAN.saveTests(PLAN.defaultSeedTest());
   })();
 
   // ---- Init ---------------------------------------------------------------
   $("#f_date").value = LM.dkey(new Date());
   refreshTypeList();
-  renderDashboard();
+  renderToday();
   bindSync();
   // Auto-pull on startup so a device opens to the latest synced data.
   if (syncCfg.auto && syncCfg.token && syncCfg.gistId) {

@@ -1,15 +1,38 @@
-# Athletic Load Tracker
+# Half-Marathon + GAA Training Dashboard
 
-A local-first web app for logging daily training and recovery metrics and turning
-them into the load-management numbers used in elite GAA and AFL setups —
-**sRPE load, ACWR, training monotony & strain** — plus an **overtraining flag
-engine** built from the published literature.
+A local-first web app for concurrent GAA + half-marathon training: it generates
+a day-by-day periodised plan from your race date and season-end date, recomputes
+pace zones from your latest 5k/10k test, and turns daily training/recovery logs
+into the load-management numbers used in elite GAA and AFL setups — **sRPE load,
+ACWR, training monotony & strain, 80/20 intensity, sprint-dose guardrails** —
+plus an **overtraining flag engine** built from the published literature.
 
 It mirrors the structure of the load-management spreadsheet it was built from:
 log multiple sessions per day, capture the same GPS / HR / Whoop / wellness
 fields, and get an automatic weekly summary with a risk band per week.
 
-## Features
+## Training-plan features (new)
+
+- **Today** — today's prescribed session(s), generated from the current phase
+  and weekly template, with a Whoop-recovery readiness input that suggests a
+  green/yellow/red modification (Section 6.2 of the brief).
+- **Plan / Calendar** — week-by-week view (prev/next/this-week) showing the
+  active phase, weekly km / long-run / max-V / strength targets, generated from
+  `plan.js`'s phase + weekly-template config — not hard-coded daily rows, so it
+  stays correct if the race date, season-end date, or test results change.
+- **Tests & Goals** — log a 5k/10k/parkrun result; pace zones (recovery → VO2max)
+  and the A/B/C half-marathon goals recompute via the Riegel formula, with the
+  Week-10 10k decision gate (~37:00→A, ~38:00→B, slower→C).
+- **Intensity (80/20)** — classifies runs easy vs hard (session-goal method) and
+  charts isolated easy-km and rolling hard-session % against the ~25–30% nudge.
+- **Speed & Strength** — weekly max-velocity (&gt;90% speed) effort count against
+  the moderate-dose guardrail band, weekly sprint distance, and a strength log.
+- **Settings** — race date, season-end date, max velocity, EWMA toggle for ACWR.
+- Log Session now also captures session **kind** (run/sprint/strength/plyo/
+  match), **run type** (easy/threshold/race-pace/...), max-V effort count, plyo
+  tier/contacts and lifts, which power all of the above.
+
+## Load-tracking features
 
 - **Log sessions** — every field from your sheet (RPE, duration, GPS distance/HSR/sprint,
   max speed, accelerations, avg/max HR, Whoop strain, HRV, resting HR, sleep,
@@ -128,6 +151,7 @@ precedes breakdown — that is when the dashboard turns red.
 | `index.html` | App shell & views |
 | `styles.css` | Styling |
 | `flags.js` | Pure metric & flag engine (`window.LM`) — no DOM, unit-testable |
+| `plan.js` | Pure phases/templates/pace-zone/rules-engine module (`window.PLAN`) — no DOM |
 | `sync.js` | GitHub Gist sync + pure `mergeEnvelopes()` (`window.Sync`) |
 | `app.js` | UI, persistence, charts, import/export, sync wiring |
 
