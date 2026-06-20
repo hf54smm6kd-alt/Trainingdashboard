@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0f1720" />
+<title>Athletic Load Tracker</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">▲</span>
+    <h1>Athletic Load Tracker</h1>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-view="dashboard">Dashboard</button>
+    <button class="tab" data-view="log">Log Session</button>
+    <button class="tab" data-view="history">History</button>
+    <button class="tab" data-view="weekly">Weekly</button>
+    <button class="tab" data-view="data">Import / Export</button>
+    <button class="tab" data-view="science">Flag Guide</button>
+  </nav>
+</header>
+
+<main id="app">
+
+  <!-- DASHBOARD -->
+  <section id="view-dashboard" class="view active">
+    <div class="view-head">
+      <h2>Dashboard</h2>
+      <div class="as-of" id="asOf"></div>
+    </div>
+
+    <div id="flagBanner" class="flag-banner"></div>
+
+    <div class="cards" id="kpiCards"></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Active flags</h3>
+        <span class="muted">Computed from your most recent data &amp; rolling baselines</span>
+      </div>
+      <div id="flagList" class="flag-list"></div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="panel">
+        <h3>Daily load &amp; 7-day acute load</h3>
+        <canvas id="chartLoad" height="220"></canvas>
+      </div>
+      <div class="panel">
+        <h3>ACWR (acute:chronic) trend</h3>
+        <canvas id="chartAcwr" height="220"></canvas>
+      </div>
+      <div class="panel">
+        <h3>HRV vs Resting HR</h3>
+        <canvas id="chartHrv" height="220"></canvas>
+      </div>
+      <div class="panel">
+        <h3>Recovery % &amp; Sleep (hrs)</h3>
+        <canvas id="chartRecovery" height="220"></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- LOG SESSION -->
+  <section id="view-log" class="view">
+    <div class="view-head">
+      <h2 id="logTitle">Log a session</h2>
+      <span class="muted">Add one entry per session. Log multiple sessions on the same date by saving again with the same day.</span>
+    </div>
+    <form id="sessionForm" class="form">
+      <input type="hidden" id="f_id" />
+      <fieldset>
+        <legend>Session</legend>
+        <div class="grid">
+          <label>Date<input type="date" id="f_date" required /></label>
+          <label>Session type<input type="text" id="f_sessionType" list="typeList" placeholder="e.g. Training, Match, Uppers, Zone 2" /></label>
+          <datalist id="typeList"></datalist>
+          <label>Duration (min)<input type="number" id="f_duration" min="0" step="1" /></label>
+          <label>RPE (1–10)<input type="number" id="f_rpe" min="0" max="10" step="0.5" /></label>
+          <label class="readonly">Load (RPE × Duration)<input type="text" id="f_load" readonly /></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>External load (GPS)</legend>
+        <div class="grid">
+          <label>Total distance (m)<input type="number" id="f_totalDistance" min="0" step="1" /></label>
+          <label>HSR (m)<input type="number" id="f_hsr" min="0" step="1" /></label>
+          <label>Sprint distance (m)<input type="number" id="f_sprintDistance" min="0" step="1" /></label>
+          <label>Max speed (km/h)<input type="number" id="f_maxSpeed" min="0" step="0.01" /></label>
+          <label>Accelerations<input type="number" id="f_accelerations" min="0" step="1" /></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Heart rate &amp; strain</legend>
+        <div class="grid">
+          <label>Avg HR<input type="number" id="f_avgHR" min="0" step="1" /></label>
+          <label>Max HR<input type="number" id="f_maxHR" min="0" step="1" /></label>
+          <label>Whoop strain<input type="number" id="f_whoopStrain" min="0" max="21" step="0.1" /></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Daily wellness <span class="muted">(one reading per day — fill on any session that day)</span></legend>
+        <div class="grid">
+          <label>HRV<input type="number" id="f_hrv" min="0" step="1" /></label>
+          <label>Resting HR<input type="number" id="f_restingHR" min="0" step="1" /></label>
+          <label>Sleep (hrs)<input type="number" id="f_sleep" min="0" step="0.01" /></label>
+          <label>Restorative sleep (hrs)<input type="number" id="f_restorativeSleep" min="0" step="0.01" /></label>
+          <label>Recovery %<input type="number" id="f_recoveryPct" min="0" max="100" step="1" /></label>
+          <label>Energy (1–10)<input type="number" id="f_energy" min="0" max="10" step="1" /></label>
+          <label>Soreness (1–10)<input type="number" id="f_soreness" min="0" max="10" step="1" /></label>
+        </div>
+        <label class="full">Notes<textarea id="f_notes" rows="2" placeholder="Niggles, location, context…"></textarea></label>
+      </fieldset>
+
+      <div class="form-actions">
+        <button type="submit" class="btn primary">Save session</button>
+        <button type="button" class="btn" id="resetForm">Clear</button>
+        <span id="formMsg" class="form-msg"></span>
+      </div>
+    </form>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="view-history" class="view">
+    <div class="view-head">
+      <h2>Session history</h2>
+      <div class="row-tools">
+        <input type="search" id="historySearch" placeholder="Filter by type or notes…" />
+        <span class="muted" id="historyCount"></span>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table id="historyTable" class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th><th>Type</th><th>Dur</th><th>RPE</th><th>Load</th>
+            <th>Dist</th><th>HSR</th><th>Sprint</th><th>Strain</th>
+            <th>HRV</th><th>RHR</th><th>Sleep</th><th>Rec%</th><th>Sore</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- WEEKLY -->
+  <section id="view-weekly" class="view">
+    <div class="view-head">
+      <h2>Weekly summary</h2>
+      <span class="muted">Weeks start Sunday. ACWR uses 7-day acute load ÷ 28-day average weekly load (coupled).</span>
+    </div>
+    <div class="table-wrap">
+      <table id="weeklyTable" class="data-table">
+        <thead>
+          <tr>
+            <th>Week (Sun)</th><th>sRPE Load</th><th>Dist (m)</th><th>HSR (m)</th><th>Sprint (m)</th>
+            <th>Strain</th><th>Monotony</th><th>Wk Strain</th>
+            <th>Avg HRV</th><th>Avg RHR</th><th>Avg Sleep</th><th>Avg Rec%</th>
+            <th>ACWR</th><th>Risk</th>
+          </tr>
+        </thead>
+        <tbody id="weeklyBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- DATA -->
+  <section id="view-data" class="view">
+    <div class="view-head"><h2>Import / Export &amp; Sync</h2></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Cross-device sync <span id="syncBadge" class="pill">off</span></h3>
+        <span class="muted">Your data lives in a private GitHub Gist. Add a token on each device to sync.</span>
+      </div>
+      <details id="syncHelp">
+        <summary class="muted" style="cursor:pointer">How to get a token (one-time)</summary>
+        <ol class="muted" style="font-size:13px">
+          <li>GitHub → <b>Settings → Developer settings → Personal access tokens</b>.</li>
+          <li><b>Fine-grained token</b>: give it <b>Gists: Read and write</b> (Account permissions). Or a <b>classic</b> token with the <code>gist</code> scope.</li>
+          <li>Copy it and paste below. It is stored only in this browser. Leave the Gist ID blank the first time — “Create &amp; push” will make a new private gist and fill it in. On your other devices, paste the same token <em>and</em> the Gist ID, then “Pull”.</li>
+        </ol>
+        <p class="muted" style="font-size:13px">Note: sync calls the GitHub API, which needs the app served over http(s) — works on GitHub Pages or <code>localhost</code>, not from a <code>file://</code> page.</p>
+      </details>
+      <div class="grid" style="margin-top:10px">
+        <label>GitHub token<input type="password" id="syncToken" placeholder="github_pat_… / ghp_…" autocomplete="off" /></label>
+        <label>Gist ID <span class="muted">(auto-filled)</span><input type="text" id="syncGist" placeholder="created on first push" /></label>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" id="syncNow">Sync now</button>
+        <button class="btn" id="syncCreate">Create &amp; push</button>
+        <button class="btn" id="syncPull">Pull &amp; merge</button>
+        <button class="btn" id="syncVerify">Verify token</button>
+        <label class="inline-check"><input type="checkbox" id="syncAuto" /> Auto-sync on save</label>
+        <button class="btn danger btn-sm" id="syncForget">Forget token</button>
+      </div>
+      <div id="syncStatus" class="form-msg" style="min-height:18px"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Paste from your spreadsheet</h3>
+      <p class="muted">Copy rows straight from your daily-log sheet (tab-separated) and paste below. The header row is auto-detected. Columns are matched by name, so column order is flexible.</p>
+      <textarea id="importBox" rows="8" placeholder="Date&#9;Session Type&#9;Duration (min)&#9;RPE (1-10)&#9;Load&#9;Total Distance (m)&#9;..."></textarea>
+      <div class="form-actions">
+        <button class="btn primary" id="importBtn">Import pasted rows</button>
+        <label class="inline-check"><input type="checkbox" id="importReplace" /> Replace all existing data</label>
+        <span id="importMsg" class="form-msg"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Backup &amp; restore</h3>
+      <div class="form-actions">
+        <button class="btn" id="exportCsv">Export CSV</button>
+        <button class="btn" id="exportJson">Export JSON backup</button>
+        <label class="btn file-btn">Restore JSON<input type="file" id="importJson" accept="application/json" hidden /></label>
+        <button class="btn danger" id="wipeBtn">Erase all data</button>
+      </div>
+      <p class="muted">Data is stored locally in this browser (localStorage). Export regularly to keep a backup, especially before switching device.</p>
+    </div>
+  </section>
+
+  <!-- SCIENCE -->
+  <section id="view-science" class="view">
+    <div class="view-head"><h2>Flag guide &amp; literature</h2></div>
+    <div id="scienceContent" class="prose"></div>
+  </section>
+
+</main>
+
+<footer class="footer">
+  <span>Local-first · your data stays in this browser. Built for GAA/AFL-style load management.</span>
+</footer>
+
+<script src="flags.js"></script>
+<script src="sync.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
